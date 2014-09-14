@@ -4,6 +4,9 @@ import java.util.List;
 
 import com.cloudigrate.gcs.StorageFacade;
 
+/* This is a service (main) class that consumes functionalities defined in StorageFacade.java
+*  Consider this as a very simple demonstrative example on Google Cloud Storage Java Client library.
+*/
 public class StorageService {
 
 	public static void main(String[] args) throws Exception {
