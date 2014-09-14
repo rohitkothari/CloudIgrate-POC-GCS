@@ -1,3 +1,23 @@
+/*
+This is a sample POC to demonstrate the use of Google Cloud Storage Java Client APIs
+This POC implementation demonstrates the following functionalities:
+	1. Create a new bucket
+	2. Upload a file to that bucket
+	3. Download that file from that bucket to local directory
+	4. List your buckets
+	5. List files in your bucket
+	
+Following details are required for authentication with your project on google console:
+	1. Project ID
+	2. Application Name
+	3. Account ID
+	4. Path to your private key
+You need to set these parameters in a properties file located in /resources. However, note that using environment variables
+is the most recommended way for these parameters.
+	
+Also there are more APIs that can be consumed, however this POC shows you basic operations for Google Cloud Storage.
+*/
+
 package com.cloudigrate.gcs;
 
 import java.io.File;
@@ -23,18 +43,96 @@ import com.google.api.services.storage.model.Bucket;
 import com.google.api.services.storage.model.StorageObject;
 
 /**
- * Simple wrapper around the Google Cloud Storage API
+ * StorageFacade consists of function definitions for above mentioned functionalities.
  */
 public class StorageFacade {
 
 	private static Properties properties;
 	private static Storage storage;
 
+	//Setting the authentication properties to be fetched from credentials file
 	private static final String PROJECT_ID_PROPERTY = "project.id";
 	private static final String APPLICATION_NAME_PROPERTY = "application.name";
 	private static final String ACCOUNT_ID_PROPERTY = "account.id";
 	private static final String PRIVATE_KEY_PATH_PROPERTY = "private.key.path";
 
+	/**
+	 * Fetches the credential property variables from a credential file
+	 * 
+	 */
+	private static Properties getProperties() throws Exception {
+
+		if (properties == null) {
+			properties = new Properties();
+			InputStream stream = StorageFacade.class
+					.getResourceAsStream("/cloudstorage.properties");
+			try {
+				properties.load(stream);
+			} catch (IOException e) {
+				throw new RuntimeException(
+						"cloudstorage.properties must be present in classpath",
+						e);
+			} finally {
+				stream.close();
+			}
+		}
+		return properties;
+	}
+	
+	
+	/**
+	 * Gets the Google Cloud Storage Instance by using authentication parameters
+	 * A particluar Storage instance refers to the one that is tied to your application at Google Console.
+	 * 
+	 */
+	private static Storage getStorage() throws Exception {
+
+		if (storage == null) {
+
+			HttpTransport httpTransport = new NetHttpTransport();
+			JsonFactory jsonFactory = new JacksonFactory();
+
+			List<String> scopes = new ArrayList<String>();
+			scopes.add(StorageScopes.DEVSTORAGE_FULL_CONTROL);
+
+			Credential credential = new GoogleCredential.Builder()
+					.setTransport(httpTransport)
+					.setJsonFactory(jsonFactory)
+					.setServiceAccountId(
+							getProperties().getProperty(ACCOUNT_ID_PROPERTY))
+					.setServiceAccountPrivateKeyFromP12File(
+							new File(getProperties().getProperty(
+									PRIVATE_KEY_PATH_PROPERTY)))
+					.setServiceAccountScopes(scopes).build();
+
+			storage = new Storage.Builder(httpTransport, jsonFactory,
+					credential).setApplicationName(
+					getProperties().getProperty(APPLICATION_NAME_PROPERTY))
+					.build();
+		}
+
+		return storage;
+	}
+
+	/**
+	 * Creates a bucket
+	 * 
+	 * @param bucketName
+	 *            Name of bucket to create
+	 * @throws Exception
+	 */
+	public static void createBucket(String bucketName) throws Exception {
+		
+		//To get the specified Storage instance
+		Storage storage = getStorage();
+
+		Bucket bucket = new Bucket();
+		bucket.setName(bucketName);
+
+		storage.buckets().insert(
+				getProperties().getProperty(PROJECT_ID_PROPERTY), bucket).execute();
+	}
+	
 	/**
 	 * Uploads a file to a bucket. Filename and content type will be based on
 	 * the original file.
@@ -72,6 +170,14 @@ public class StorageFacade {
 		}
 	}
 	
+	/**
+	 * Downloads a file from a bucket to a local directory.
+	 * 
+	 * @param bucketName
+	 *            Bucket from where to download the file
+	 * @param fileName
+	 *            Absolute path where the file needs to be downloaded
+	 */
 	public static void downloadFile(String bucketName, String fileName, String destinationDirectory) throws Exception {
 		
 		File directory = new File(destinationDirectory);
@@ -91,54 +197,30 @@ public class StorageFacade {
 		}
 	}
 
+
 	/**
-	 * Deletes a file within a bucket
+	 * List the buckets with the project
+	 * (Project is configured in properties)
 	 * 
-	 * @param bucketName
-	 *            Name of bucket that contains the file
-	 * @param fileName
-	 *            The file to delete
+	 * @return
 	 * @throws Exception
 	 */
-	public static void deleteFile(String bucketName, String fileName)
-			throws Exception {
-
+	public static List<String> listBuckets() throws Exception {
+		
 		Storage storage = getStorage();
 		
-		storage.objects().delete(bucketName, fileName).execute();
-	}
-
-	/**
-	 * Creates a bucket
-	 * 
-	 * @param bucketName
-	 *            Name of bucket to create
-	 * @throws Exception
-	 */
-	public static void createBucket(String bucketName) throws Exception {
-
-		Storage storage = getStorage();
-
-		Bucket bucket = new Bucket();
-		bucket.setName(bucketName);
-
-		storage.buckets().insert(
-				getProperties().getProperty(PROJECT_ID_PROPERTY), bucket).execute();
+		List<String> list = new ArrayList<String>();
+		
+		List<Bucket> buckets = storage.buckets().list(getProperties().getProperty(PROJECT_ID_PROPERTY)).execute().getItems();
+		if(buckets != null) {
+			for(Bucket b : buckets) {
+				list.add(b.getName());
+			}
+		}
+		
+		return list;
 	}
 	
-	/**
-	 * Deletes a bucket
-	 * 
-	 * @param bucketName
-	 *            Name of bucket to delete
-	 * @throws Exception
-	 */
-	public static void deleteBucket(String bucketName) throws Exception {
-
-		Storage storage = getStorage();
-		
-		storage.buckets().delete(bucketName).execute();
-	}
 	
 	/**
 	 * Lists the objects in a bucket
@@ -164,73 +246,36 @@ public class StorageFacade {
 	}
 	
 	/**
-	 * List the buckets with the project
-	 * (Project is configured in properties)
+	 * Deletes a file within a bucket
 	 * 
-	 * @return
+	 * @param bucketName
+	 *            Name of bucket that contains the file
+	 * @param fileName
+	 *            The file to delete
 	 * @throws Exception
 	 */
-	public static List<String> listBuckets() throws Exception {
-		
+	public static void deleteFile(String bucketName, String fileName)
+			throws Exception {
+
 		Storage storage = getStorage();
 		
-		List<String> list = new ArrayList<String>();
+		storage.objects().delete(bucketName, fileName).execute();
+	}
+
+	
+	/**
+	 * Deletes a bucket
+	 * 
+	 * @param bucketName
+	 *            Name of bucket to delete
+	 * @throws Exception
+	 */
+	 
+	public static void deleteBucket(String bucketName) throws Exception {
+
+		Storage storage = getStorage();
 		
-		List<Bucket> buckets = storage.buckets().list(getProperties().getProperty(PROJECT_ID_PROPERTY)).execute().getItems();
-		if(buckets != null) {
-			for(Bucket b : buckets) {
-				list.add(b.getName());
-			}
-		}
-		
-		return list;
+		storage.buckets().delete(bucketName).execute();
 	}
-
-	private static Properties getProperties() throws Exception {
-
-		if (properties == null) {
-			properties = new Properties();
-			InputStream stream = StorageFacade.class
-					.getResourceAsStream("/cloudstorage.properties");
-			try {
-				properties.load(stream);
-			} catch (IOException e) {
-				throw new RuntimeException(
-						"cloudstorage.properties must be present in classpath",
-						e);
-			} finally {
-				stream.close();
-			}
-		}
-		return properties;
-	}
-
-	private static Storage getStorage() throws Exception {
-
-		if (storage == null) {
-
-			HttpTransport httpTransport = new NetHttpTransport();
-			JsonFactory jsonFactory = new JacksonFactory();
-
-			List<String> scopes = new ArrayList<String>();
-			scopes.add(StorageScopes.DEVSTORAGE_FULL_CONTROL);
-
-			Credential credential = new GoogleCredential.Builder()
-					.setTransport(httpTransport)
-					.setJsonFactory(jsonFactory)
-					.setServiceAccountId(
-							getProperties().getProperty(ACCOUNT_ID_PROPERTY))
-					.setServiceAccountPrivateKeyFromP12File(
-							new File(getProperties().getProperty(
-									PRIVATE_KEY_PATH_PROPERTY)))
-					.setServiceAccountScopes(scopes).build();
-
-			storage = new Storage.Builder(httpTransport, jsonFactory,
-					credential).setApplicationName(
-					getProperties().getProperty(APPLICATION_NAME_PROPERTY))
-					.build();
-		}
-
-		return storage;
-	}
+	
 }
